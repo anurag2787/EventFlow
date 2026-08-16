@@ -1,4 +1,4 @@
-.PHONY: run down restart logs shell migrate makemigrations createsuperuser
+.PHONY: run down restart logs shell migrate makemigrations createsuperuser create-app
 
 run:
 	docker compose up --build
@@ -19,8 +19,14 @@ shell:
 migrate:
 	docker compose exec backend python manage.py migrate
 
-makemigrations:
+migrations:
 	docker compose exec backend python manage.py makemigrations
 
-createsuperuser:
+create-superuser:
 	docker compose exec backend python manage.py createsuperuser
+
+create-app:
+	docker compose exec backend python manage.py startapp $(filter-out $@,$(MAKECMDGOALS))
+
+%:
+	@:
