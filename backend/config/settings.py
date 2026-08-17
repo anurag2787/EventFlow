@@ -67,7 +67,10 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    'rest_framework',
+    'django_filters',
     'core.apps.CoreConfig',
+    'github.apps.GithubConfig',
 ]
 
 MIDDLEWARE = [
@@ -145,4 +148,16 @@ MAILERS = {
     'default': {
         'BACKEND': 'django.core.mail.backends.console.EmailBackend',
     },
+}
+
+
+# Django REST Framework
+REST_FRAMEWORK = {
+    'DEFAULT_FILTER_BACKENDS': [
+        'django_filters.rest_framework.DjangoFilterBackend',
+        'rest_framework.filters.OrderingFilter',
+    ],
+    'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.CursorPagination',
+    'PAGE_SIZE': 50,
+    'DEFAULT_ORDERING_FIELDS': ['-created_at', 'id'],
 }

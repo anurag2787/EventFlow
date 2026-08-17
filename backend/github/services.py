@@ -5,7 +5,7 @@ from typing import Any
 
 from django.db import transaction
 
-from core.models import Activity, Event, Repository
+from core.models import Activity, Repository
 
 from .client import GitHubClient
 from .normalizers import GitHubEventNormalizer
@@ -41,7 +41,6 @@ class GitHubRepositorySyncService:
         owner, repo_name = self.resolve_coordinates(repository)
 
         fetched_events = 0
-        created_events = 0
         created_activities = 0
         skipped_events = 0
         page = 1
@@ -57,13 +56,13 @@ class GitHubRepositorySyncService:
             fetched_events += len(events)
             event_ids = [str(event.get("id")) for event in events if event.get("id") is not None]
             existing_ids = set(
-                Event.objects.filter(
-                    provider="github",
-                    external_id__in=event_ids,
-                ).values_list("external_id", flat=True)
+                Activity.objects.filter(
+                    repository=repository,
+                    source_provider="github",
+                    source_event_id__in=event_ids,
+                ).values_list("source_event_id", flat=True)
             )
 
-            to_create: list[Event] = []
             to_create_activities: list[Activity] = []
             for event in events:
                 external_id = event.get("id")
@@ -76,16 +75,6 @@ class GitHubRepositorySyncService:
                     skipped_events += 1
                     continue
 
-                to_create.append(
-                    Event(
-                        repository=repository,
-                        provider="github",
-                        external_id=external_id_str,
-                        event_type=str(event.get("type") or "unknown"),
-                        payload=event,
-                    )
-                )
-
                 normalized_event = self.normalizer.normalize(event)
                 if normalized_event is not None:
                     to_create_activities.append(
@@ -93,17 +82,19 @@ class GitHubRepositorySyncService:
                             repository=repository,
                             activity_type=normalized_event.activity_type,
                             target_id=normalized_event.target_id,
+                            source_provider="github",
+                            source_event_id=external_id_str,
+                            source_event_type=str(event.get("type") or "unknown"),
+                            source_url=normalized_event.source_url,
                             metadata=normalized_event.metadata,
                         )
                     )
+                else:
+                    skipped_events += 1
 
-            if to_create or to_create_activities:
+            if to_create_activities:
                 with transaction.atomic():
-                    if to_create:
-                        Event.objects.bulk_create(to_create, batch_size=500)
-                    if to_create_activities:
-                        Activity.objects.bulk_create(to_create_activities, batch_size=500)
-                created_events += len(to_create)
+                    Activity.objects.bulk_create(to_create_activities, batch_size=500)
                 created_activities += len(to_create_activities)
 
             if len(events) < per_page:
@@ -116,9 +107,32 @@ class GitHubRepositorySyncService:
             "owner": owner,
             "name": repo_name,
             "fetched_events": fetched_events,
-            "created_events": created_events,
             "created_activities": created_activities,
             "skipped_events": skipped_events,
+        }
+
+    def sync_all_repositories(self, *, per_page: int = 100) -> dict[str, Any]:
+        repositories = Repository.objects.select_related("organization").filter(provider__iexact="github").order_by("id")
+
+        results: list[dict[str, Any]] = []
+        totals = {
+            "repositories": 0,
+            "fetched_events": 0,
+            "created_activities": 0,
+            "skipped_events": 0,
+        }
+
+        for repository in repositories:
+            result = self.sync_repository(repository, per_page=per_page)
+            results.append(result)
+            totals["repositories"] += 1
+            totals["fetched_events"] += result["fetched_events"]
+            totals["created_activities"] += result["created_activities"]
+            totals["skipped_events"] += result["skipped_events"]
+
+        return {
+            "totals": totals,
+            "results": results,
         }
 
     def resolve_coordinates(self, repository: Repository) -> tuple[str, str]:
