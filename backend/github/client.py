@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import socket
 from dataclasses import dataclass
 from typing import Any
@@ -27,6 +28,10 @@ class GitHubClient:
     timeout: int = 15
     user_agent: str = "EventFlow-GitHubClient/1.0"
 
+    def __post_init__(self) -> None:
+        if not self.token:
+            self.token = os.getenv("GITHUB_TOKEN") or os.getenv("GH_TOKEN")
+
     def get_repositories(
         self,
         *,
@@ -44,7 +49,7 @@ class GitHubClient:
         params = {"per_page": per_page, "page": page}
         if affiliation:
             params["affiliation"] = affiliation
-        return self._request("GET", path, params=params)
+        return self.request("GET", path, params=params)
 
     def get_repository_events(
         self,

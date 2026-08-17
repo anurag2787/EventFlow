@@ -9,6 +9,8 @@ from .exceptions import (
     GitHubServerError,
     GitHubTimeoutError,
 )
+from .normalizers import GitHubEventNormalizer, NormalizedEvent
+from .services import GitHubRepositorySyncService, RepositorySyncError
 
 __all__ = [
     "GitHubClient",
@@ -20,4 +22,8 @@ __all__ = [
     "GitHubServerError",
     "GitHubTimeoutError",
     "GitHubNetworkError",
+    "GitHubEventNormalizer",
+    "NormalizedEvent",
+    "GitHubRepositorySyncService",
+    "RepositorySyncError",
 ]
