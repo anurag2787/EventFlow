@@ -13,6 +13,35 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  celery:
+    container_name: celery-eventflow
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: celery -A config worker --loglevel=info
+    volumes:
+      - ./backend:/app
+    env_file:
+      - .env
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  redis:
+    container_name: redis-eventflow
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
   db:
     container_name: db-eventflow

@@ -10,7 +10,7 @@ from rest_framework.response import Response
 from .models import Activity, Event, Repository
 from .serializers import ActivitySerializer, EventProcessingAttemptSerializer, EventSerializer
 from .services import EventProcessorService, IdempotencyTestService
-
+from .tasks import process_event_task
 
 
 class EventViewSet(viewsets.ModelViewSet):
@@ -38,7 +38,7 @@ class EventViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=["post"])
     def ingest(self, request):
-        """Ingest a raw event payload idempotently."""
+        """Ingest a raw event payload idempotently and queue for asynchronous processing via Celery & Redis."""
         repo_id = request.data.get("repository_id")
         event_id = request.data.get("event_id")
         event_type = request.data.get("event_type", "PullRequestEvent")
@@ -58,11 +58,19 @@ class EventViewSet(viewsets.ModelViewSet):
             payload=payload,
         )
 
+        # Queue background processing task in Celery
+        process_event_task.delay(event.pk)
+
         serializer = EventSerializer(event)
         return Response(
-            {"created": created, "event": serializer.data},
-            status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
+            {
+                "message": "Event ingested and queued for asynchronous processing.",
+                "created": created,
+                "event": serializer.data,
+            },
+            status=status.HTTP_202_ACCEPTED if created else status.HTTP_200_OK,
         )
+
 
     @action(detail=True, methods=["post"])
     def process(self, request, pk=None):
