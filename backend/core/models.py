@@ -7,7 +7,7 @@ class User(AbstractUser):
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        verbose_name_plural = 'User'
+        verbose_name_plural = 'Users'
 
     def __str__(self):
         return self.username
@@ -18,7 +18,7 @@ class Organization(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        verbose_name_plural = 'Organization'
+        verbose_name_plural = 'Organizations'
 
     def __str__(self):
         return self.name
@@ -41,7 +41,7 @@ class Repository(models.Model):
         super().save(*args, **kwargs)
 
     class Meta:
-        verbose_name_plural = 'Repository'
+        verbose_name_plural = 'Repositories'
 
     def __str__(self):
         return f'{self.organization.name}/{self.name} ({self.provider})'
@@ -70,7 +70,7 @@ class Activity(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        verbose_name_plural = 'Activity'
+        verbose_name_plural = 'Activities'
         constraints = [
             models.UniqueConstraint(
                 fields=['repository', 'source_provider', 'source_event_id'],
@@ -99,7 +99,8 @@ class WebhookSubscription(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        verbose_name_plural = 'Webhook Subscription'
+        verbose_name_plural = 'Webhook Subscriptions'
+
 
     def __str__(self):
         return f'{self.provider} subscription for {self.repository}'

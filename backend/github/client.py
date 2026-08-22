@@ -179,8 +179,7 @@ class GitHubClient:
     def raise_for_http_error(self, exc: HTTPError) -> None:
         payload = self.read_error_payload(exc)
         message = self.extract_error_message(payload) or f"GitHub API request failed with status {exc.code}"
-        retry_after = exc.headers.get("Retry-After")
-        retry_after_seconds = int(retry_after) if retry_after and retry_after.isdigit() else None
+        retry_after_seconds = self.parse_retry_after(exc.headers.get("Retry-After"))
 
         if exc.code == 401:
             raise GitHubAuthenticationError(message, status_code=exc.code, payload=payload) from exc
@@ -206,6 +205,26 @@ class GitHubClient:
             raise GitHubServerError(message, status_code=exc.code, payload=payload) from exc
 
         raise GitHubClientError(message, status_code=exc.code, payload=payload) from exc
+
+    def parse_retry_after(self, retry_after: str | None) -> int | None:
+        if not retry_after or not isinstance(retry_after, str):
+            return None
+        retry_after = retry_after.strip()
+        if retry_after.isdigit():
+            return int(retry_after)
+        try:
+            from datetime import datetime, timezone
+            from email.utils import parsedate_to_datetime
+
+            dt = parsedate_to_datetime(retry_after)
+            if dt:
+                now = datetime.now(timezone.utc)
+                delta = (dt - now).total_seconds()
+                return max(0, int(delta))
+        except Exception:
+            pass
+        return None
+
 
     def read_error_payload(self, exc: HTTPError) -> Any:
         raw = exc.read()

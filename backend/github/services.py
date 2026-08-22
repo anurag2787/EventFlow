@@ -94,8 +94,12 @@ class GitHubRepositorySyncService:
 
             if to_create_activities:
                 with transaction.atomic():
-                    Activity.objects.bulk_create(to_create_activities, batch_size=500)
-                created_activities += len(to_create_activities)
+                    created_objs = Activity.objects.bulk_create(
+                        to_create_activities,
+                        batch_size=500,
+                        ignore_conflicts=True,
+                    )
+                created_activities += len(created_objs) if created_objs else len(to_create_activities)
 
             if len(events) < per_page:
                 break
@@ -106,6 +110,7 @@ class GitHubRepositorySyncService:
             "provider": repository.provider,
             "owner": owner,
             "name": repo_name,
+            "status": "success",
             "fetched_events": fetched_events,
             "created_activities": created_activities,
             "skipped_events": skipped_events,
@@ -117,23 +122,38 @@ class GitHubRepositorySyncService:
         results: list[dict[str, Any]] = []
         totals = {
             "repositories": 0,
+            "successful_syncs": 0,
+            "failed_syncs": 0,
             "fetched_events": 0,
             "created_activities": 0,
             "skipped_events": 0,
         }
 
         for repository in repositories:
-            result = self.sync_repository(repository, per_page=per_page)
-            results.append(result)
-            totals["repositories"] += 1
-            totals["fetched_events"] += result["fetched_events"]
-            totals["created_activities"] += result["created_activities"]
-            totals["skipped_events"] += result["skipped_events"]
+            try:
+                result = self.sync_repository(repository, per_page=per_page)
+                results.append(result)
+                totals["repositories"] += 1
+                totals["successful_syncs"] += 1
+                totals["fetched_events"] += result.get("fetched_events", 0)
+                totals["created_activities"] += result.get("created_activities", 0)
+                totals["skipped_events"] += result.get("skipped_events", 0)
+            except Exception as exc:
+                totals["repositories"] += 1
+                totals["failed_syncs"] += 1
+                results.append({
+                    "repository_id": repository.id,
+                    "provider": repository.provider,
+                    "name": repository.name,
+                    "status": "error",
+                    "error": str(exc),
+                })
 
         return {
             "totals": totals,
             "results": results,
         }
+
 
     def resolve_coordinates(self, repository: Repository) -> tuple[str, str]:
         if repository.external_id and "/" in repository.external_id:

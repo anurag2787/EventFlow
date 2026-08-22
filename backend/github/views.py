@@ -1,7 +1,7 @@
-from django.http import JsonResponse
 from django.shortcuts import get_object_or_404
-from django.views.decorators.csrf import csrf_exempt
-from django.views.decorators.http import require_POST
+from rest_framework import status
+from rest_framework.decorators import api_view
+from rest_framework.response import Response
 
 from core.models import Repository
 
@@ -18,55 +18,48 @@ from .exceptions import (
 from .services import RepositorySyncError, GitHubRepositorySyncService
 
 
-def error_response(detail: str, status_code: int) -> JsonResponse:
-    return JsonResponse({"detail": detail}, status=status_code)
+def handle_sync_exception(exc: Exception) -> Response:
+    if isinstance(exc, RepositorySyncError):
+        return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+    if isinstance(exc, GitHubAuthenticationError):
+        return Response({"detail": str(exc)}, status=status.HTTP_401_UNAUTHORIZED)
+    if isinstance(exc, (GitHubForbiddenError, GitHubNotFoundError)):
+        code = getattr(exc, "status_code", None) or status.HTTP_400_BAD_REQUEST
+        return Response({"detail": str(exc)}, status=code)
+    if isinstance(exc, GitHubRateLimitError):
+        headers = {}
+        if getattr(exc, "retry_after", None) is not None:
+            headers["Retry-After"] = str(exc.retry_after)
+        return Response({"detail": str(exc)}, status=status.HTTP_429_TOO_MANY_REQUESTS, headers=headers)
+    if isinstance(exc, (GitHubServerError, GitHubNetworkError, GitHubTimeoutError)):
+        return Response({"detail": str(exc)}, status=status.HTTP_502_BAD_GATEWAY)
+    if isinstance(exc, GitHubClientError):
+        code = getattr(exc, "status_code", None) or status.HTTP_400_BAD_REQUEST
+        return Response({"detail": str(exc)}, status=code)
+
+    return Response({"detail": str(exc)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
-@csrf_exempt
-@require_POST
+@api_view(["POST"])
 def repository_sync(request, repository_id: int):
+    """Synchronize GitHub events for a single repository."""
     repository = get_object_or_404(Repository, pk=repository_id)
 
     try:
         result = GitHubRepositorySyncService().sync_repository(repository)
-    except RepositorySyncError as exc:
-        return error_response(str(exc), 400)
-    except GitHubAuthenticationError as exc:
-        return error_response(str(exc), 401)
-    except (GitHubForbiddenError, GitHubNotFoundError) as exc:
-        return error_response(str(exc), exc.status_code or 400)
-    except GitHubRateLimitError as exc:
-        response = error_response(str(exc), 429)
-        if exc.retry_after is not None:
-            response["Retry-After"] = str(exc.retry_after)
-        return response
-    except (GitHubServerError, GitHubNetworkError, GitHubTimeoutError) as exc:
-        return error_response(str(exc), 502)
-    except GitHubClientError as exc:
-        return error_response(str(exc), getattr(exc, "status_code", None) or 400)
+    except Exception as exc:
+        return handle_sync_exception(exc)
 
-    return JsonResponse(result, status=200)
+    return Response(result, status=status.HTTP_200_OK)
 
 
-@csrf_exempt
-@require_POST
+@api_view(["POST"])
 def sync_all_repositories(request):
+    """Synchronize GitHub events for all registered GitHub repositories."""
     try:
         result = GitHubRepositorySyncService().sync_all_repositories()
-    except RepositorySyncError as exc:
-        return error_response(str(exc), 400)
-    except GitHubAuthenticationError as exc:
-        return error_response(str(exc), 401)
-    except (GitHubForbiddenError, GitHubNotFoundError) as exc:
-        return error_response(str(exc), exc.status_code or 400)
-    except GitHubRateLimitError as exc:
-        response = error_response(str(exc), 429)
-        if exc.retry_after is not None:
-            response["Retry-After"] = str(exc.retry_after)
-        return response
-    except (GitHubServerError, GitHubNetworkError, GitHubTimeoutError) as exc:
-        return error_response(str(exc), 502)
-    except GitHubClientError as exc:
-        return error_response(str(exc), getattr(exc, "status_code", None) or 400)
+    except Exception as exc:
+        return handle_sync_exception(exc)
 
-    return JsonResponse(result, status=200)
+    return Response(result, status=status.HTTP_200_OK)
+
