@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from .models import Activity, Organization, Repository, User
+from .models import Activity, Event, EventProcessingAttempt, Organization, Repository, User
 
 
 class UserSerializer(serializers.ModelSerializer):
@@ -46,3 +46,36 @@ class ActivitySerializer(serializers.ModelSerializer):
             "created_at",
         ]
         read_only_fields = ["id", "created_at"]
+
+
+class EventProcessingAttemptSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = EventProcessingAttempt
+        fields = ["id", "attempt_number", "status", "error", "started_at", "completed_at"]
+        read_only_fields = ["id", "started_at", "completed_at"]
+
+
+class EventSerializer(serializers.ModelSerializer):
+    attempts = EventProcessingAttemptSerializer(many=True, read_only=True)
+    repository = RepositorySerializer(read_only=True)
+
+    class Meta:
+        model = Event
+        fields = [
+            "id",
+            "repository",
+            "provider",
+            "event_id",
+            "event_type",
+            "payload",
+            "status",
+            "retry_count",
+            "max_retries",
+            "next_retry_at",
+            "last_error",
+            "created_at",
+            "updated_at",
+            "attempts",
+        ]
+        read_only_fields = ["id", "created_at", "updated_at"]
+

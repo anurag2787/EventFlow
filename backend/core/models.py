@@ -104,3 +104,75 @@ class WebhookSubscription(models.Model):
 
     def __str__(self):
         return f'{self.provider} subscription for {self.repository}'
+
+
+class Event(models.Model):
+    STATUS_PENDING = 'PENDING'
+    STATUS_PROCESSING = 'PROCESSING'
+    STATUS_COMPLETED = 'COMPLETED'
+    STATUS_FAILED = 'FAILED'  # Dead-letter status
+
+    STATUS_CHOICES = [
+        (STATUS_PENDING, 'Pending'),
+        (STATUS_PROCESSING, 'Processing'),
+        (STATUS_COMPLETED, 'Completed'),
+        (STATUS_FAILED, 'Failed (Dead-Letter)'),
+    ]
+
+    repository = models.ForeignKey(
+        Repository,
+        on_delete=models.CASCADE,
+        related_name='events',
+    )
+    provider = models.CharField(max_length=100, default='github')
+    event_id = models.CharField(max_length=255)
+    event_type = models.CharField(max_length=100)
+    payload = models.JSONField(default=dict, blank=True)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_PENDING)
+    retry_count = models.IntegerField(default=0)
+    max_retries = models.IntegerField(default=3)
+    next_retry_at = models.DateTimeField(null=True, blank=True)
+    last_error = models.TextField(blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name_plural = 'Events'
+        constraints = [
+            models.UniqueConstraint(
+                fields=['repository', 'provider', 'event_id'],
+                name='uniq_event_provider_id',
+            )
+        ]
+
+    def __str__(self):
+        return f'Event {self.event_id} ({self.event_type}) - {self.status}'
+
+
+class EventProcessingAttempt(models.Model):
+    STATUS_SUCCESS = 'SUCCESS'
+    STATUS_FAILED = 'FAILED'
+
+    STATUS_CHOICES = [
+        (STATUS_SUCCESS, 'Success'),
+        (STATUS_FAILED, 'Failed'),
+    ]
+
+    event = models.ForeignKey(
+        Event,
+        on_delete=models.CASCADE,
+        related_name='attempts',
+    )
+    attempt_number = models.IntegerField()
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES)
+    error = models.TextField(blank=True, default='')
+    started_at = models.DateTimeField()
+    completed_at = models.DateTimeField()
+
+    class Meta:
+        verbose_name_plural = 'Event Processing Attempts'
+        ordering = ['attempt_number']
+
+    def __str__(self):
+        return f'Attempt {self.attempt_number} for Event {self.event.event_id} ({self.status})'
+

@@ -6,6 +6,7 @@ from typing import Any
 from django.db import transaction
 
 from core.models import Activity, Repository
+from core.services import EventProcessorService
 
 from .client import GitHubClient
 from .normalizers import GitHubEventNormalizer
@@ -27,12 +28,15 @@ class RepositoryReferenceError(RepositorySyncError):
 class GitHubRepositorySyncService:
     client: GitHubClient | None = None
     normalizer: GitHubEventNormalizer | None = None
+    processor: EventProcessorService | None = None
 
     def __post_init__(self) -> None:
         if self.client is None:
             self.client = GitHubClient()
         if self.normalizer is None:
             self.normalizer = GitHubEventNormalizer()
+        if self.processor is None:
+            self.processor = EventProcessorService(normalizer=self.normalizer)
 
     def sync_repository(self, repository: Repository, *, per_page: int = 100) -> dict[str, Any]:
         if repository.provider.lower() != "github":
@@ -54,16 +58,7 @@ class GitHubRepositorySyncService:
                 break
 
             fetched_events += len(events)
-            event_ids = [str(event.get("id")) for event in events if event.get("id") is not None]
-            existing_ids = set(
-                Activity.objects.filter(
-                    repository=repository,
-                    source_provider="github",
-                    source_event_id__in=event_ids,
-                ).values_list("source_event_id", flat=True)
-            )
 
-            to_create_activities: list[Activity] = []
             for event in events:
                 external_id = event.get("id")
                 if external_id is None:
@@ -71,35 +66,25 @@ class GitHubRepositorySyncService:
                     continue
 
                 external_id_str = str(external_id)
-                if external_id_str in existing_ids:
+                event_type_str = str(event.get("type") or "unknown")
+
+                raw_event, created = self.processor.ingest_event(
+                    repository=repository,
+                    provider="github",
+                    event_id=external_id_str,
+                    event_type=event_type_str,
+                    payload=event,
+                )
+
+                if not created and raw_event.status == "COMPLETED":
                     skipped_events += 1
                     continue
 
-                normalized_event = self.normalizer.normalize(event)
-                if normalized_event is not None:
-                    to_create_activities.append(
-                        Activity(
-                            repository=repository,
-                            activity_type=normalized_event.activity_type,
-                            target_id=normalized_event.target_id,
-                            source_provider="github",
-                            source_event_id=external_id_str,
-                            source_event_type=str(event.get("type") or "unknown"),
-                            source_url=normalized_event.source_url,
-                            metadata=normalized_event.metadata,
-                        )
-                    )
+                activity, attempt = self.processor.process_event(raw_event)
+                if activity is not None:
+                    created_activities += 1
                 else:
                     skipped_events += 1
-
-            if to_create_activities:
-                with transaction.atomic():
-                    created_objs = Activity.objects.bulk_create(
-                        to_create_activities,
-                        batch_size=500,
-                        ignore_conflicts=True,
-                    )
-                created_activities += len(created_objs) if created_objs else len(to_create_activities)
 
             if len(events) < per_page:
                 break
@@ -115,6 +100,7 @@ class GitHubRepositorySyncService:
             "created_activities": created_activities,
             "skipped_events": skipped_events,
         }
+
 
     def sync_all_repositories(self, *, per_page: int = 100) -> dict[str, Any]:
         repositories = Repository.objects.select_related("organization").filter(provider__iexact="github").order_by("id")
