@@ -77,6 +77,11 @@ class Activity(models.Model):
                 name='uniq_activity_source_event',
             )
         ]
+        indexes = [
+            models.Index(fields=['repository', '-created_at'], name='idx_activity_repo_created'),
+            models.Index(fields=['actor', '-created_at'], name='idx_activity_actor_created'),
+            models.Index(fields=['activity_type', '-created_at'], name='idx_activity_type_created'),
+        ]
 
     def __str__(self):
         return f'{self.activity_type} on {self.repository.organization.name}/{self.repository.name}'
