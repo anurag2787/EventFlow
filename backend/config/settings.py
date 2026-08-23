@@ -161,7 +161,14 @@ REST_FRAMEWORK = {
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.CursorPagination',
     'PAGE_SIZE': 50,
     'DEFAULT_ORDERING_FIELDS': ['-created_at', 'id'],
+    'DEFAULT_THROTTLE_CLASSES': [
+        'core.throttling.RedisRateThrottle',
+    ],
+    'DEFAULT_THROTTLE_RATES': {
+        'redis_api': '100/min',
+    },
 }
+
 
 # Celery Configuration
 CELERY_BROKER_URL = os.getenv("CELERY_BROKER_URL", "redis://redis:6379/0")
