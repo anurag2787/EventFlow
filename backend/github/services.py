@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from django.db import transaction
+from django.utils import timezone
 
 from core.models import Activity, Repository
 from core.services import EventProcessorService
@@ -42,64 +43,81 @@ class GitHubRepositorySyncService:
         if repository.provider.lower() != "github":
             raise UnsupportedRepositoryProviderError("Only GitHub repositories can be synchronized")
 
-        owner, repo_name = self.resolve_coordinates(repository)
+        repository.last_sync_status = Repository.SYNC_STATUS_IN_PROGRESS
+        repository.save(update_fields=["last_sync_status"])
 
-        fetched_events = 0
-        created_activities = 0
-        skipped_events = 0
-        page = 1
+        try:
+            owner, repo_name = self.resolve_coordinates(repository)
 
-        while True:
-            events = self.client.get_repository_events(owner, repo_name, per_page=per_page, page=page)
-            if not isinstance(events, list):
-                raise RepositorySyncError("GitHub events response must be a list")
+            fetched_events = 0
+            created_activities = 0
+            skipped_events = 0
+            page = 1
 
-            if not events:
-                break
+            while True:
+                events = self.client.get_repository_events(owner, repo_name, per_page=per_page, page=page)
+                if not isinstance(events, list):
+                    raise RepositorySyncError("GitHub events response must be a list")
 
-            fetched_events += len(events)
+                if not events:
+                    break
 
-            for event in events:
-                external_id = event.get("id")
-                if external_id is None:
-                    skipped_events += 1
-                    continue
+                fetched_events += len(events)
 
-                external_id_str = str(external_id)
-                event_type_str = str(event.get("type") or "unknown")
+                for event in events:
+                    external_id = event.get("id")
+                    if external_id is None:
+                        skipped_events += 1
+                        continue
 
-                raw_event, created = self.processor.ingest_event(
-                    repository=repository,
-                    provider="github",
-                    event_id=external_id_str,
-                    event_type=event_type_str,
-                    payload=event,
-                )
+                    external_id_str = str(external_id)
+                    event_type_str = str(event.get("type") or "unknown")
 
-                if not created and raw_event.status == "COMPLETED":
-                    skipped_events += 1
-                    continue
+                    raw_event, created = self.processor.ingest_event(
+                        repository=repository,
+                        provider="github",
+                        event_id=external_id_str,
+                        event_type=event_type_str,
+                        payload=event,
+                    )
 
-                activity, attempt = self.processor.process_event(raw_event)
-                if activity is not None:
-                    created_activities += 1
-                else:
-                    skipped_events += 1
+                    if not created and raw_event.status == "COMPLETED":
+                        skipped_events += 1
+                        continue
 
-            if len(events) < per_page:
-                break
-            page += 1
+                    activity, attempt = self.processor.process_event(raw_event)
+                    if activity is not None:
+                        created_activities += 1
+                    else:
+                        skipped_events += 1
 
-        return {
-            "repository_id": repository.id,
-            "provider": repository.provider,
-            "owner": owner,
-            "name": repo_name,
-            "status": "success",
-            "fetched_events": fetched_events,
-            "created_activities": created_activities,
-            "skipped_events": skipped_events,
-        }
+                if len(events) < per_page:
+                    break
+                page += 1
+
+            repository.last_synced_at = timezone.now()
+            repository.last_sync_status = Repository.SYNC_STATUS_SUCCESS
+            repository.last_sync_error = ""
+            repository.save(update_fields=["last_synced_at", "last_sync_status", "last_sync_error"])
+
+            return {
+                "repository_id": repository.id,
+                "provider": repository.provider,
+                "owner": owner,
+                "name": repo_name,
+                "status": "success",
+                "fetched_events": fetched_events,
+                "created_activities": created_activities,
+                "skipped_events": skipped_events,
+                "last_synced_at": repository.last_synced_at.isoformat(),
+            }
+        except Exception as exc:
+            repository.last_synced_at = timezone.now()
+            repository.last_sync_status = Repository.SYNC_STATUS_FAILED
+            repository.last_sync_error = str(exc)
+            repository.save(update_fields=["last_synced_at", "last_sync_status", "last_sync_error"])
+            raise
+
 
 
     def sync_all_repositories(self, *, per_page: int = 100) -> dict[str, Any]:

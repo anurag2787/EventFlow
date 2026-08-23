@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import socket
+import time
 from dataclasses import dataclass
 from typing import Any
 from urllib.error import HTTPError, URLError
@@ -27,6 +28,8 @@ class GitHubClient:
     base_url: str = "https://api.github.com"
     timeout: int = 15
     user_agent: str = "EventFlow-GitHubClient/1.0"
+    max_retries: int = 3
+    backoff_factor: float = 0.5
 
     def __post_init__(self) -> None:
         if not self.token:
@@ -136,30 +139,53 @@ class GitHubClient:
             headers["Content-Type"] = "application/json"
             data = json.dumps(body).encode("utf-8")
 
-        request = Request(url, data=data, headers=headers, method=method)
+        attempt = 0
+        while attempt < self.max_retries:
+            attempt += 1
+            request = Request(url, data=data, headers=headers, method=method)
+            try:
+                with urlopen(request, timeout=self.timeout) as response:
+                    raw = response.read()
+                    if response.status == 204 or not raw:
+                        return None
 
-        try:
-            with urlopen(request, timeout=self.timeout) as response:
-                raw = response.read()
-                if response.status == 204 or not raw:
-                    return None
-
-                text = raw.decode(response.headers.get_content_charset() or "utf-8")
+                    text = raw.decode(response.headers.get_content_charset() or "utf-8")
+                    try:
+                        return json.loads(text)
+                    except json.JSONDecodeError as exc:
+                        raise GitHubClientError("GitHub API returned invalid JSON") from exc
+            except HTTPError as exc:
                 try:
-                    return json.loads(text)
-                except json.JSONDecodeError as exc:
-                    raise GitHubClientError("GitHub API returned invalid JSON") from exc
-        except HTTPError as exc:
-            self.raise_for_http_error(exc)
-        except socket.timeout as exc:
-            raise GitHubTimeoutError("GitHub request timed out") from exc
-        except URLError as exc:
-            reason = getattr(exc, "reason", exc)
-            if isinstance(reason, socket.timeout):
-                raise GitHubTimeoutError("GitHub request timed out") from exc
-            raise GitHubNetworkError(f"GitHub network error: {reason}") from exc
+                    self.raise_for_http_error(exc)
+                except GitHubRateLimitError:
+                    # Recognize rate limits immediately without endlessly retrying
+                    raise
+                except GitHubServerError as err:
+                    if attempt >= self.max_retries:
+                        raise err
+                    sleep_time = self.backoff_factor * (2 ** (attempt - 1))
+                    time.sleep(sleep_time)
+                except GitHubClientError:
+                    # Non-transient 4xx client errors should fail fast
+                    raise
+            except socket.timeout as exc:
+                if attempt >= self.max_retries:
+                    raise GitHubTimeoutError("GitHub request timed out") from exc
+                sleep_time = self.backoff_factor * (2 ** (attempt - 1))
+                time.sleep(sleep_time)
+            except URLError as exc:
+                reason = getattr(exc, "reason", exc)
+                if isinstance(reason, socket.timeout):
+                    if attempt >= self.max_retries:
+                        raise GitHubTimeoutError("GitHub request timed out") from exc
+                else:
+                    if attempt >= self.max_retries:
+                        raise GitHubNetworkError(f"GitHub network error: {reason}") from exc
+                sleep_time = self.backoff_factor * (2 ** (attempt - 1))
+                time.sleep(sleep_time)
 
-        raise GitHubClientError("Unexpected GitHub client state")
+        raise GitHubClientError("Unexpected GitHub client retry termination")
+
 
     def build_url(self, path: str, params: dict[str, Any] | None = None) -> str:
         path = path if path.startswith("/") else f"/{path}"

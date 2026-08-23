@@ -25,6 +25,18 @@ class Organization(models.Model):
 
 
 class Repository(models.Model):
+    SYNC_STATUS_NEVER = 'NEVER'
+    SYNC_STATUS_IN_PROGRESS = 'IN_PROGRESS'
+    SYNC_STATUS_SUCCESS = 'SUCCESS'
+    SYNC_STATUS_FAILED = 'FAILED'
+
+    SYNC_STATUS_CHOICES = [
+        (SYNC_STATUS_NEVER, 'Never Synced'),
+        (SYNC_STATUS_IN_PROGRESS, 'In Progress'),
+        (SYNC_STATUS_SUCCESS, 'Success'),
+        (SYNC_STATUS_FAILED, 'Failed'),
+    ]
+
     organization = models.ForeignKey(
         Organization,
         on_delete=models.CASCADE,
@@ -33,6 +45,13 @@ class Repository(models.Model):
     name = models.CharField(max_length=255)
     external_id = models.CharField(max_length=255, blank=True, default='')
     provider = models.CharField(max_length=100)
+    last_synced_at = models.DateTimeField(null=True, blank=True)
+    last_sync_status = models.CharField(
+        max_length=20,
+        choices=SYNC_STATUS_CHOICES,
+        default=SYNC_STATUS_NEVER,
+    )
+    last_sync_error = models.TextField(blank=True, default='')
     created_at = models.DateTimeField(auto_now_add=True)
 
     def save(self, *args, **kwargs):
@@ -45,6 +64,7 @@ class Repository(models.Model):
 
     def __str__(self):
         return f'{self.organization.name}/{self.name} ({self.provider})'
+
 
 
 class Activity(models.Model):

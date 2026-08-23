@@ -4,6 +4,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import timedelta
 from typing import Any
 
+from django.core.cache import cache
 from django.db import IntegrityError, transaction
 from django.utils import timezone
 
@@ -16,6 +17,13 @@ class EventProcessorService:
 
     def __init__(self, normalizer: GitHubEventNormalizer | None = None) -> None:
         self.normalizer = normalizer or GitHubEventNormalizer()
+
+    def invalidate_activity_caches(self) -> None:
+        """Invalidates cached activity stream and stats queries upon new Activity creation."""
+        cached_keys = cache.get("activity_cache_keys", set())
+        if isinstance(cached_keys, set) and cached_keys:
+            cache.delete_many(list(cached_keys))
+            cache.delete("activity_cache_keys")
 
     def ingest_event(
         self,
@@ -72,7 +80,7 @@ class EventProcessorService:
                 # Idempotent Activity creation backed by database UniqueConstraint
                 try:
                     with transaction.atomic():
-                        activity, _ = Activity.objects.get_or_create(
+                        activity, activity_created = Activity.objects.get_or_create(
                             repository=event.repository,
                             source_provider=event.provider,
                             source_event_id=event.event_id,
@@ -84,6 +92,8 @@ class EventProcessorService:
                                 "metadata": normalized.metadata,
                             },
                         )
+                        if activity_created:
+                            self.invalidate_activity_caches()
                 except IntegrityError:
                     activity = Activity.objects.get(
                         repository=event.repository,
@@ -111,6 +121,7 @@ class EventProcessorService:
             event.save(update_fields=["status", "last_error", "next_retry_at", "updated_at"])
 
             return activity, attempt
+
 
         except Exception as exc:
             completed_at = timezone.now()

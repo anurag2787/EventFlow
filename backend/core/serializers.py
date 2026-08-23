@@ -22,8 +22,19 @@ class RepositorySerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Repository
-        fields = ["id", "organization", "name", "external_id", "provider", "created_at"]
-        read_only_fields = ["id", "created_at"]
+        fields = [
+            "id",
+            "organization",
+            "name",
+            "external_id",
+            "provider",
+            "last_synced_at",
+            "last_sync_status",
+            "last_sync_error",
+            "created_at",
+        ]
+        read_only_fields = ["id", "last_synced_at", "last_sync_status", "last_sync_error", "created_at"]
+
 
 
 class ActivitySerializer(serializers.ModelSerializer):

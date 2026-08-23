@@ -1,3 +1,6 @@
+import hashlib
+import urllib.parse
+from django.core.cache import cache
 from django.db import models
 from django.shortcuts import get_object_or_404
 from django.utils.dateparse import parse_date
@@ -11,6 +14,7 @@ from .models import Activity, Event, Repository
 from .serializers import ActivitySerializer, EventProcessingAttemptSerializer, EventSerializer
 from .services import EventProcessorService, IdempotencyTestService
 from .tasks import process_event_task
+
 
 
 class EventViewSet(viewsets.ModelViewSet):
@@ -131,6 +135,29 @@ class ActivityViewSet(viewsets.ReadOnlyModelViewSet):
     filterset_fields = ["repository__organization", "actor", "activity_type"]
     ordering_fields = ["created_at", "id"]
 
+    def list(self, request, *args, **kwargs):
+        """Read activity stream with Redis caching (Hit/Miss headers)."""
+        query_str = urllib.parse.urlencode(sorted(request.query_params.items()))
+        cache_key = f"activities_list:{hashlib.md5(query_str.encode()).hexdigest()}"
+
+        cached_data = cache.get(cache_key)
+        if cached_data is not None:
+            response = Response(cached_data)
+            response["X-Cache"] = "HIT"
+            return response
+
+        response = super().list(request, *args, **kwargs)
+        if response.status_code == 200:
+            cache.set(cache_key, response.data, timeout=300)
+            cached_keys = cache.get("activity_cache_keys", set())
+            if not isinstance(cached_keys, set):
+                cached_keys = set()
+            cached_keys.add(cache_key)
+            cache.set("activity_cache_keys", cached_keys, timeout=86400)
+
+        response["X-Cache"] = "MISS"
+        return response
+
     def get_queryset(self):
         queryset = super().get_queryset()
 
@@ -179,11 +206,20 @@ class ActivityViewSet(viewsets.ReadOnlyModelViewSet):
 
     @action(detail=False, methods=["get"])
     def stats(self, request):
-        """Get activity statistics"""
+        """Get activity statistics with Redis caching."""
+        query_str = urllib.parse.urlencode(sorted(request.query_params.items()))
+        cache_key = f"activities_stats:{hashlib.md5(query_str.encode()).hexdigest()}"
+
+        cached_data = cache.get(cache_key)
+        if cached_data is not None:
+            response = Response(cached_data)
+            response["X-Cache"] = "HIT"
+            return response
+
         queryset = self.get_queryset()
         base_qs = queryset.order_by()
 
-        stats = {
+        stats_data = {
             "total_activities": base_qs.count(),
             "by_type": dict(
                 base_qs.values("activity_type").annotate(count=models.Count("id")).values_list("activity_type", "count")
@@ -192,5 +228,15 @@ class ActivityViewSet(viewsets.ReadOnlyModelViewSet):
                 base_qs.values("repository__name").annotate(count=models.Count("id")).values_list("repository__name", "count")
             ),
         }
-        return Response(stats)
+        cache.set(cache_key, stats_data, timeout=300)
+        cached_keys = cache.get("activity_cache_keys", set())
+        if not isinstance(cached_keys, set):
+            cached_keys = set()
+        cached_keys.add(cache_key)
+        cache.set("activity_cache_keys", cached_keys, timeout=86400)
+
+        response = Response(stats_data)
+        response["X-Cache"] = "MISS"
+        return response
+
 
