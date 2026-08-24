@@ -1,13 +1,13 @@
 from rest_framework import serializers
 
-from .models import Activity, Event, EventProcessingAttempt, Organization, Repository, User
+from .models import Activity, Event, EventProcessingAttempt, Organization, Repository, TrackedRepository, User
 
 
 class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
-        fields = ["id", "username", "email"]
-        read_only_fields = ["id"]
+        fields = ["id", "username", "email", "github_id"]
+        read_only_fields = ["id", "github_id"]
 
 
 class OrganizationSerializer(serializers.ModelSerializer):
@@ -89,4 +89,13 @@ class EventSerializer(serializers.ModelSerializer):
             "attempts",
         ]
         read_only_fields = ["id", "created_at", "updated_at"]
+
+
+class TrackedRepositorySerializer(serializers.ModelSerializer):
+    name = serializers.CharField(source="repository.external_id", read_only=True)
+
+    class Meta:
+        model = TrackedRepository
+        fields = ["id", "name"]
+        read_only_fields = ["id", "name"]
 

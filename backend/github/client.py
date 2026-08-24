@@ -54,6 +54,9 @@ class GitHubClient:
             params["affiliation"] = affiliation
         return self.request("GET", path, params=params)
 
+    def get_repository(self, owner: str, repo: str) -> Any:
+        return self.request("GET", f"/repos/{owner}/{repo}")
+
     def get_repository_events(
         self,
         owner: str,

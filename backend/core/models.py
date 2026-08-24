@@ -4,6 +4,7 @@ from django.db import models
 
 
 class User(AbstractUser):
+    github_id = models.CharField(max_length=255, unique=True, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -200,4 +201,26 @@ class EventProcessingAttempt(models.Model):
 
     def __str__(self):
         return f'Attempt {self.attempt_number} for Event {self.event.event_id} ({self.status})'
+
+
+class TrackedRepository(models.Model):
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='tracked_repositories',
+    )
+    repository = models.ForeignKey(
+        Repository,
+        on_delete=models.CASCADE,
+        related_name='tracked_repositories',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    last_synced_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        unique_together = ('user', 'repository')
+        verbose_name_plural = 'Tracked Repositories'
+
+    def __str__(self):
+        return f'{self.user.username} -> {self.repository.external_id}'
 

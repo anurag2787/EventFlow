@@ -1,13 +1,19 @@
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 
-from .models import Activity, Organization, Repository, User, WebhookSubscription
+from .models import Activity, Organization, Repository, TrackedRepository, User, WebhookSubscription
 
 
 @admin.register(User)
 class UserAdmin(BaseUserAdmin):
+    fieldsets = BaseUserAdmin.fieldsets + (
+        (None, {'fields': ('github_id',)}),
+    )
+    add_fieldsets = BaseUserAdmin.add_fieldsets + (
+        (None, {'fields': ('github_id',)}),
+    )
     readonly_fields = ('created_at',)
-    list_display = ('username', 'email', 'is_staff', 'is_active', 'created_at')
+    list_display = ('username', 'github_id', 'email', 'is_staff', 'is_active', 'created_at')
     ordering = ('username',)
 
 
@@ -67,3 +73,16 @@ class WebhookSubscriptionAdmin(admin.ModelAdmin):
     @admin.display(description='Repository')
     def repository_display(self, obj):
         return f'{obj.repository.organization.name}/{obj.repository.name}'
+
+
+@admin.register(TrackedRepository)
+class TrackedRepositoryAdmin(admin.ModelAdmin):
+    list_display = ('user', 'repository_name', 'created_at', 'last_synced_at')
+    list_filter = ('user',)
+    search_fields = ('user__username', 'repository__name', 'repository__organization__name')
+    list_select_related = ('user', 'repository', 'repository__organization')
+    readonly_fields = ('created_at',)
+
+    @admin.display(description='Repository')
+    def repository_name(self, obj):
+        return obj.repository.external_id
