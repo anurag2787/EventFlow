@@ -177,7 +177,11 @@ Event_FLow/
     ├── core/               # Main domain application
     │   ├── models.py       # All database models (User, Repository, Activity, Event, etc.)
     │   ├── serializers.py  # DRF serializers — convert models to/from JSON
-    │   ├── views.py        # All API view logic (ActivityViewSet, EventViewSet, Auth, etc.)
+    │   ├── views/          # API views — split by resource for clarity
+    │   │   ├── __init__.py    # Re-exports all views (keeps urls.py import-clean)
+    │   │   ├── activities.py  # ActivityViewSet, MyActivityViewSet
+    │   │   ├── events.py      # EventViewSet
+    │   │   └── auth.py        # GitHubLoginView, LogoutView, TrackedRepositoryViewSet
     │   ├── services.py     # Business logic layer (EventProcessorService)
     │   ├── tasks.py        # Celery async tasks (process_event_task)
     │   ├── throttling.py   # Redis-backed rate limiter (RedisRateThrottle)
@@ -555,7 +559,7 @@ POST /api/events/ingest/  →  HTTP 202 Accepted (< 20ms)
 User calls: POST /api/github/repositories/{id}/sync/
                     │
                     ▼
-        github/views.py  (SyncRepositoryView)
+        github/views.py  (repository_sync / sync_all_repositories)
                     │
                     ▼
         github/services.py  (GitHubRepositorySyncService.sync_repository)
@@ -580,7 +584,7 @@ User calls: POST /api/github/repositories/{id}/sync/
 External system calls: POST /api/events/ingest/
                     │
                     ▼
-        core/views.py  (EventViewSet.ingest)
+        core/views/events.py  (EventViewSet.ingest)
          │
          ├── Event.objects.get_or_create  → saves to PostgreSQL (status: PENDING)
          │
