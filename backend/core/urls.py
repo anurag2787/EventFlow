@@ -6,6 +6,7 @@ from .views import (
     EventViewSet,
     GitHubLoginView,
     GitHubCallbackView,
+    CurrentUserView,
     LogoutView,
     TrackedRepositoryViewSet,
     MyActivityViewSet,
@@ -20,6 +21,7 @@ router.register(r"me/activities", MyActivityViewSet, basename="me-activity")
 urlpatterns = [
     path("auth/github/login/", GitHubLoginView.as_view(), name="github-login"),
     path("auth/github/callback/", GitHubCallbackView.as_view(), name="github-callback"),
+    path("auth/me/", CurrentUserView.as_view(), name="current-user"),
     path("auth/logout/", LogoutView.as_view(), name="logout"),
     path("", include(router.urls)),
 ]

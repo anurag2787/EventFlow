@@ -53,11 +53,14 @@ def repository_sync(request, repository_id: int):
     return Response(result, status=status.HTTP_200_OK)
 
 
+from core.services import EventProcessorService
+
 @api_view(["POST"])
 def sync_all_repositories(request):
     """Synchronize GitHub events for all registered GitHub repositories."""
     try:
         result = GitHubRepositorySyncService().sync_all_repositories()
+        EventProcessorService().invalidate_activity_caches()
     except Exception as exc:
         return handle_sync_exception(exc)
 

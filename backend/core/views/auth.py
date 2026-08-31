@@ -175,27 +175,46 @@ class GitHubCallbackView(APIView):
         # Log the user in to establish a session
         login(request, user)
 
-        return Response({
-            "detail": "Logged in successfully",
-            "user": {
-                "id": user.id,
-                "username": user.username,
-                "email": user.email,
-                "github_id": user.github_id
-            }
-        }, status=status.HTTP_200_OK)
+        frontend_url = os.getenv("FRONTEND_URL", "http://localhost:3000")
+        return redirect(f"{frontend_url}?login=success&username={urllib.parse.quote(user.username)}")
+
+
+class CurrentUserView(APIView):
+    permission_classes = [permissions.AllowAny]
+
+    def get(self, request):
+        if request.user and request.user.is_authenticated:
+            return Response({
+                "authenticated": True,
+                "user": {
+                    "id": request.user.id,
+                    "username": request.user.username,
+                    "email": request.user.email,
+                    "github_id": getattr(request.user, "github_id", None)
+                }
+            })
+        return Response({"authenticated": False, "user": None})
 
 
 class LogoutView(APIView):
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.AllowAny]
 
     def post(self, request):
         logout(request)
         return Response({"detail": "Logged out successfully"}, status=status.HTTP_200_OK)
 
 
+from rest_framework.authentication import SessionAuthentication
+
+
+class CsrfExemptSessionAuthentication(SessionAuthentication):
+    def enforce_csrf(self, request):
+        return  # Allow session authentication from Next.js frontend
+
+
 class TrackedRepositoryViewSet(viewsets.ModelViewSet):
     serializer_class = TrackedRepositorySerializer
+    authentication_classes = [CsrfExemptSessionAuthentication]
     permission_classes = [permissions.IsAuthenticated]
     pagination_class = None
 

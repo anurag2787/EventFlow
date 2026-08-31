@@ -1,10 +1,11 @@
-# Aggregates all core API views — each resource has its own module.
+# Aggregates all core API views - each resource has its own module.
 
 from core.views.activities import ActivityCursorPagination, ActivityViewSet, MyActivityViewSet
 from core.views.events import EventViewSet
 from core.views.auth import (
     GitHubLoginView,
     GitHubCallbackView,
+    CurrentUserView,
     LogoutView,
     TrackedRepositoryViewSet,
 )
@@ -16,6 +17,7 @@ __all__ = [
     "EventViewSet",
     "GitHubLoginView",
     "GitHubCallbackView",
+    "CurrentUserView",
     "LogoutView",
     "TrackedRepositoryViewSet",
 ]

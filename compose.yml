@@ -16,6 +16,29 @@ services:
       redis:
         condition: service_healthy
 
+  frontend:
+    container_name: frontend-eventflow
+    build:
+      context: .
+      dockerfile_inline: |
+        FROM node:20-alpine
+        RUN npm install -g pnpm@10.25.0
+        WORKDIR /app
+        COPY frontend/package.json frontend/pnpm-lock.yaml ./
+        RUN pnpm install --frozen-lockfile
+        COPY frontend/ .
+        EXPOSE 3000
+        CMD ["pnpm", "dev"]
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:8000
+    depends_on:
+      - backend
+
   celery:
     container_name: celery-eventflow
     build:

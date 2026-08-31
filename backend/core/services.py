@@ -19,7 +19,7 @@ class EventProcessorService:
         self.normalizer = normalizer or GitHubEventNormalizer()
 
     def invalidate_activity_caches(self) -> None:
-        """Invalidates cached activity stream and stats queries upon new Activity creation."""
+        """Invalidates cached activity stream and stats queries upon new Activity creation or Sync."""
         cached_keys = cache.get("activity_cache_keys", set())
         if isinstance(cached_keys, set) and cached_keys:
             cache.delete_many(list(cached_keys))
